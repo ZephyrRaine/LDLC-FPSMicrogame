@@ -48,7 +48,7 @@ public class EnemyTurret : MonoBehaviour
         m_EnemyController.onLostTarget += OnLostTarget;
 
         // Remember the rotation offset between the pivot's forward and the weapon's forward
-        m_RotationWeaponForwardToPivot = Quaternion.Inverse(m_EnemyController.weapon.weaponMuzzle.rotation) * turretPivot.rotation;
+        m_RotationWeaponForwardToPivot = Quaternion.Inverse(m_EnemyController.GetCurrentWeapon().weaponMuzzle.rotation) * turretPivot.rotation;
 
         // Start with idle
         aiState = AIState.Idle;
@@ -82,7 +82,9 @@ public class EnemyTurret : MonoBehaviour
                 // shoot
                 if (mustShoot)
                 {
-                    m_EnemyController.TryAtack((m_PivotAimingRotation * Quaternion.Inverse(m_RotationWeaponForwardToPivot)) * Vector3.forward);
+                    Vector3 correctedDirectionToTarget = (m_PivotAimingRotation * Quaternion.Inverse(m_RotationWeaponForwardToPivot)) * Vector3.forward;
+
+                    m_EnemyController.TryAtack(turretAimPoint.position + correctedDirectionToTarget);
                 }
 
                 break;

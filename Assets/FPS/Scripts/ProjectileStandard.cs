@@ -193,7 +193,7 @@ public class ProjectileStandard : MonoBehaviour
         }
 
         // ignore hits with specific ignored colliders (self colliders, by default)
-        if (m_IgnoredColliders.Contains(hit.collider))
+        if (m_IgnoredColliders != null && m_IgnoredColliders.Contains(hit.collider))
         {
             return false;
         }

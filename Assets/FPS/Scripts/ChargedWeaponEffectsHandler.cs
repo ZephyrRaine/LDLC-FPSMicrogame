@@ -16,6 +16,8 @@ public class ChargedWeaponEffectsHandler : MonoBehaviour
     public GameObject diskOrbitParticlePrefab;
     [Tooltip("Local position offset of the charge particles (relative to this transform)")]
     public Vector3 offset;
+    [Tooltip("Parent transform for the particles (Optional)")]
+    public Transform parentTransform;
     [Tooltip("Orbital velocity of the charge particles based on charge")]
     public MinMaxFloat orbitY;
     [Tooltip("Radius of the charge particles based on charge")]
@@ -40,11 +42,14 @@ public class ChargedWeaponEffectsHandler : MonoBehaviour
     AudioSource m_AudioSource;
     AudioSource m_AudioSourceLoop;
 
+    float m_LastChargeTriggerTimestamp;
     float m_ChargeRatio;
     float m_EndchargeTime;
 
     void Awake()
     {
+        m_LastChargeTriggerTimestamp = 0.0f;
+
         // The charge effect needs it's own AudioSources, since it will play on top of the other gun sounds
         m_AudioSource = gameObject.AddComponent<AudioSource>();
         m_AudioSource.clip = chargeSound;
@@ -61,7 +66,7 @@ public class ChargedWeaponEffectsHandler : MonoBehaviour
 
     void SpawnParticleSystem()
     {
-        particleInstance = Instantiate(diskOrbitParticlePrefab, transform);
+        particleInstance = Instantiate(diskOrbitParticlePrefab, parentTransform != null ? parentTransform : transform);
         particleInstance.transform.localPosition += offset;
 
         FindReferences();
@@ -98,8 +103,9 @@ public class ChargedWeaponEffectsHandler : MonoBehaviour
         // update sound's volume and pitch 
         if (m_ChargeRatio > 0)
         {
-            if (!m_AudioSource.isPlaying && m_ChargeRatio < 0.1f)
+            if (!m_AudioSource.isPlaying && m_WeaponController.LastChargeTriggerTimestamp > m_LastChargeTriggerTimestamp)
             {
+                m_LastChargeTriggerTimestamp = m_WeaponController.LastChargeTriggerTimestamp;
                 m_EndchargeTime = Time.time + chargeSound.length;
 
                 m_AudioSource.Play();

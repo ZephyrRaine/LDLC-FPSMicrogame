@@ -3,6 +3,8 @@
 [RequireComponent(typeof(WeaponController))]
 public class WeaponFuelCellHandler : MonoBehaviour
 {
+    [Tooltip("Retract All Fuel Cells Simultaneously")]
+    public bool SimultaneousFuelCellsUsage = false;
     [Tooltip("List of GameObjects representing the fuel cells on the weapon")]
     public GameObject[] fuelCells;
     [Tooltip("Cell local position when used")]
@@ -27,17 +29,27 @@ public class WeaponFuelCellHandler : MonoBehaviour
 
     void Update()
     {
-        // TODO: needs simplification
-        for (int i = 0; i < fuelCells.Length; i++)
+        if (SimultaneousFuelCellsUsage)
         {
-            float length = fuelCells.Length;
-            float lim1 = i / length;
-            float lim2 = (i + 1) / length;
+            for (int i = 0; i < fuelCells.Length; i++)
+            {
+                fuelCells[i].transform.localPosition = Vector3.Lerp(fuelCellUsedPosition, fuelCellUnusedPosition, m_Weapon.currentAmmoRatio);
+            }
+        }
+        else
+        {
+            // TODO: needs simplification
+            for (int i = 0; i < fuelCells.Length; i++)
+            {
+                float length = fuelCells.Length;
+                float lim1 = i / length;
+                float lim2 = (i + 1) / length;
 
-            float value = Mathf.InverseLerp(lim1, lim2, m_Weapon.currentAmmoRatio);
-            value = Mathf.Clamp01(value);
+                float value = Mathf.InverseLerp(lim1, lim2, m_Weapon.currentAmmoRatio);
+                value = Mathf.Clamp01(value);
 
-            fuelCells[i].transform.localPosition = Vector3.Lerp(fuelCellUsedPosition, fuelCellUnusedPosition, value);
+                fuelCells[i].transform.localPosition = Vector3.Lerp(fuelCellUsedPosition, fuelCellUnusedPosition, value);
+            }
         }
     }
 }

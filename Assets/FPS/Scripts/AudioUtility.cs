@@ -11,11 +11,13 @@ public class AudioUtility
         Impact,
         EnemyDetection,
         Pickup,
+        WeaponShoot,
         WeaponOverheat,
         WeaponChargeBuildup,
         WeaponChargeLoop,
         HUDVictory,
         HUDObjective,
+        BossAttack_Railgun
     }
 
     public static void CreateSFX(AudioClip clip, Vector3 position, AudioGroups audioGroup, float spatialBlend, float rolloffDistanceMin = 1f)
@@ -39,7 +41,7 @@ public class AudioUtility
         if (m_AudioManager == null)
             m_AudioManager = GameObject.FindObjectOfType<AudioManager>();
 
-        var groups = m_AudioManager.audioMixer.FindMatchingGroups(group.ToString());
+        var groups = m_AudioManager.FindMatchingGroups(group.ToString());
 
         if (groups.Length > 0)
             return groups[0];
@@ -57,7 +59,7 @@ public class AudioUtility
             value = 0.001f;
         float valueInDB = Mathf.Log10(value) * 20;
 
-        m_AudioManager.audioMixer.SetFloat("MasterVolume", valueInDB);
+        m_AudioManager.SetFloat("MasterVolume", valueInDB);
     }
 
     public static float GetMasterVolume()
@@ -65,7 +67,7 @@ public class AudioUtility
         if (m_AudioManager == null)
             m_AudioManager = GameObject.FindObjectOfType<AudioManager>();
 
-        m_AudioManager.audioMixer.GetFloat("MasterVolume", out var valueInDB);
+        m_AudioManager.GetFloat("MasterVolume", out var valueInDB);
         return Mathf.Pow(10f, valueInDB / 20.0f);
     }
 }

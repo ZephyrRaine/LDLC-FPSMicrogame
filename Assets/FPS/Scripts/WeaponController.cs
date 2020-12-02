@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using UnityEngine.Events;
 
 public enum WeaponShootType
 {
@@ -67,6 +68,8 @@ public class WeaponController : MonoBehaviour
     public float maxAmmo = 8;
 
     [Header("Charging parameters (charging weapons only)")]
+    [Tooltip("Trigger a shot when maximum charge is reached")]
+    public bool automaticReleaseOnCharged;
     [Tooltip("Duration to reach maximum charge")]
     public float maxChargeDuration = 2f;
     [Tooltip("Initial ammo used when starting to charge")]
@@ -75,16 +78,30 @@ public class WeaponController : MonoBehaviour
     public float ammoUsageRateWhileCharging = 1f;
 
     [Header("Audio & Visual")]
+    [Tooltip("Optional weapon animator for OnShoot animations")]
+    public Animator weaponAnimator;
     [Tooltip("Prefab of the muzzle flash")]
     public GameObject muzzleFlashPrefab;
+    [Tooltip("Unparent the muzzle flash instance on spawn")]
+    public bool unparentMuzzleFlash;
     [Tooltip("sound played when shooting")]
     public AudioClip shootSFX;
     [Tooltip("Sound played when changing to this weapon")]
     public AudioClip changeWeaponSFX;
 
+    [Tooltip("Continuous Shooting Sound")]
+    public bool useContinuousShootSound = false;
+    public AudioClip continuousShootStartSFX;
+    public AudioClip continuousShootLoopSFX;
+    public AudioClip continuousShootEndSFX;
+    private AudioSource m_continuousShootAudioSource = null;
+    private bool m_wantsToShoot = false;
+
+    public UnityAction onShoot;
+
     float m_CurrentAmmo;
     float m_LastTimeShot = Mathf.NegativeInfinity;
-    float m_TimeBeginCharge;
+    public float LastChargeTriggerTimestamp { get; private set; }
     Vector3 m_LastMuzzlePosition;
 
     public GameObject owner { get; set; }
@@ -95,9 +112,11 @@ public class WeaponController : MonoBehaviour
     public bool isCooling { get; private set; }
     public float currentCharge { get; private set; }
     public Vector3 muzzleWorldVelocity { get; private set; }
-    public float GetAmmoNeededToShoot() => (shootType != WeaponShootType.Charge ? 1 : ammoUsedOnStartCharge) / maxAmmo;
+    public float GetAmmoNeededToShoot() => (shootType != WeaponShootType.Charge ? 1f : Mathf.Max(1f, ammoUsedOnStartCharge)) / (maxAmmo * bulletsPerShot);
 
     AudioSource m_ShootAudioSource;
+
+    const string k_AnimAttackParameter = "Attack";
 
     void Awake()
     {
@@ -106,13 +125,22 @@ public class WeaponController : MonoBehaviour
 
         m_ShootAudioSource = GetComponent<AudioSource>();
         DebugUtility.HandleErrorIfNullGetComponent<AudioSource, WeaponController>(m_ShootAudioSource, this, gameObject);
+
+        if (useContinuousShootSound)
+        {
+            m_continuousShootAudioSource = gameObject.AddComponent<AudioSource>();
+            m_continuousShootAudioSource.playOnAwake = false;
+            m_continuousShootAudioSource.clip = continuousShootLoopSFX;
+            m_continuousShootAudioSource.outputAudioMixerGroup = AudioUtility.GetAudioGroup(AudioUtility.AudioGroups.WeaponShoot);
+            m_continuousShootAudioSource.loop = true;
+        }
     }
 
     void Update()
     {
         UpdateAmmo();
-
         UpdateCharge();
+        UpdateContinuousShootSound();
 
         if (Time.deltaTime > 0)
         {
@@ -162,12 +190,16 @@ public class WeaponController : MonoBehaviour
                 {
                     chargeAdded = chargeLeft;
                 }
-                chargeAdded = (1f / maxChargeDuration) * Time.deltaTime;
+                else
+                {
+                    chargeAdded = (1f / maxChargeDuration) * Time.deltaTime;
+                }
+
                 chargeAdded = Mathf.Clamp(chargeAdded, 0f, chargeLeft);
 
                 // See if we can actually add this charge
                 float ammoThisChargeWouldRequire = chargeAdded * ammoUsageRateWhileCharging;
-                //if (ammoThisChargeWouldRequire <= m_CurrentAmmo)
+                if (ammoThisChargeWouldRequire <= m_CurrentAmmo)
                 {
                     // Use ammo based on charge added
                     UseAmmo(ammoThisChargeWouldRequire);
@@ -175,6 +207,27 @@ public class WeaponController : MonoBehaviour
                     // set current charge ratio
                     currentCharge = Mathf.Clamp01(currentCharge + chargeAdded);
                 }
+            }
+        }
+    }
+
+    private void UpdateContinuousShootSound()
+    {
+        if (useContinuousShootSound)
+        {
+            if (m_wantsToShoot && m_CurrentAmmo >= 1f)
+            {
+                if (!m_continuousShootAudioSource.isPlaying)
+                {
+                    m_ShootAudioSource.PlayOneShot(shootSFX);
+                    m_ShootAudioSource.PlayOneShot(continuousShootStartSFX);
+                    m_continuousShootAudioSource.Play();
+                }
+            }
+            else if (m_continuousShootAudioSource.isPlaying)
+            {
+                m_ShootAudioSource.PlayOneShot(continuousShootEndSFX);
+                m_continuousShootAudioSource.Stop();
             }
         }
     }
@@ -199,6 +252,7 @@ public class WeaponController : MonoBehaviour
 
     public bool HandleShootInputs(bool inputDown, bool inputHeld, bool inputUp)
     {
+        m_wantsToShoot = inputDown || inputHeld;
         switch (shootType)
         {
             case WeaponShootType.Manual:
@@ -220,7 +274,8 @@ public class WeaponController : MonoBehaviour
                 {
                     TryBeginCharge();
                 }
-                if (inputUp)
+                // Check if we released charge or if the weapon shoot autmatically when it's fully charged
+                if (inputUp || (automaticReleaseOnCharged && currentCharge >= 1f))
                 {
                     return TryReleaseCharge();
                 }
@@ -237,7 +292,7 @@ public class WeaponController : MonoBehaviour
             && m_LastTimeShot + delayBetweenShots < Time.time)
         {
             HandleShoot();
-            m_CurrentAmmo -= 1;
+            m_CurrentAmmo -= 1f;
 
             return true;
         }
@@ -247,11 +302,14 @@ public class WeaponController : MonoBehaviour
 
     bool TryBeginCharge()
     {
-        if (!isCharging 
-            && m_CurrentAmmo >= ammoUsedOnStartCharge 
+        if (!isCharging
+            && m_CurrentAmmo >= ammoUsedOnStartCharge
+            && Mathf.FloorToInt((m_CurrentAmmo - ammoUsedOnStartCharge) * bulletsPerShot) > 0
             && m_LastTimeShot + delayBetweenShots < Time.time)
         {
-            UseAmmo(ammoUsedOnStartCharge); 
+            UseAmmo(ammoUsedOnStartCharge);
+
+            LastChargeTriggerTimestamp = Time.time;
             isCharging = true;
 
             return true;
@@ -276,8 +334,10 @@ public class WeaponController : MonoBehaviour
 
     void HandleShoot()
     {
+        int bulletsPerShotFinal = shootType == WeaponShootType.Charge ? Mathf.CeilToInt(currentCharge * bulletsPerShot) : bulletsPerShot;
+        
         // spawn all bullets with random direction
-        for (int i = 0; i < bulletsPerShot; i++)
+        for (int i = 0; i < bulletsPerShotFinal; i++)
         {
             Vector3 shotDirection = GetShotDirectionWithinSpread(weaponMuzzle);
             ProjectileBase newProjectile = Instantiate(projectilePrefab, weaponMuzzle.position, Quaternion.LookRotation(shotDirection));
@@ -288,15 +348,33 @@ public class WeaponController : MonoBehaviour
         if (muzzleFlashPrefab != null)
         {
             GameObject muzzleFlashInstance = Instantiate(muzzleFlashPrefab, weaponMuzzle.position, weaponMuzzle.rotation, weaponMuzzle.transform);
+            // Unparent the muzzleFlashInstance
+            if (unparentMuzzleFlash)
+            {
+                muzzleFlashInstance.transform.SetParent(null);
+            }
+
             Destroy(muzzleFlashInstance, 2f);
         }
 
         m_LastTimeShot = Time.time;
 
         // play shoot SFX
-        if (shootSFX)
+        if (shootSFX && !useContinuousShootSound)
         {
             m_ShootAudioSource.PlayOneShot(shootSFX);
+        }
+
+        // Trigger attack animation if there is any
+        if (weaponAnimator)
+        {
+            weaponAnimator.SetTrigger(k_AnimAttackParameter);
+        }
+
+        // Callback on shoot
+        if (onShoot != null)
+        {
+            onShoot();
         }
     }
 

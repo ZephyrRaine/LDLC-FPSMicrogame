@@ -56,3 +56,28 @@ The following packages were added:
   com.unity.learn.iet-framework@0.2.1-preview.1
   com.unity.probuilder@4.1.0
   com.unity.progrids@3.0.3-preview.4
+
+=== Wed Dec  2 22:28:54 2020
+
+Packages were changed.
+Update Mode: updateDependencies
+
+The following packages were updated:
+  com.unity.ide.rider from version 1.1.0 to 1.1.4
+  com.unity.ide.vscode from version 1.1.2 to 1.2.1
+  com.unity.test-framework from version 1.0.13 to 1.1.16
+  com.unity.timeline from version 1.1.0 to 1.2.6
+The following packages were removed:
+  com.unity.package-manager-ui@2.2.0
+
+=== Wed Dec  2 22:45:27 2020
+
+Packages were changed.
+Update Mode: mergeDefaultDependencies
+
+The following packages were updated:
+  com.unity.connect.share from version 1.0.6-preview.2 to 1.2.0-preview.1
+  com.unity.learn.iet-framework from version 0.2.1-preview.1 to 0.3.0-preview.5
+  com.unity.probuilder from version 4.1.0 to 4.2.3
+  com.unity.progrids from version 3.0.3-preview.4 to 3.0.3-preview.5
+  com.unity.timeline from version 1.2.6 to 1.2.14

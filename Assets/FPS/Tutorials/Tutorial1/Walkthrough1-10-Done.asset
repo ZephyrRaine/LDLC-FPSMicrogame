@@ -52,7 +52,7 @@ MonoBehaviour:
     - m_Type: 2
       m_Summary: 
       m_Text: 
-      m_TutorialButtonText: 'Tutorial 2: Build Level'
+      m_TutorialButtonText: 'Tutorial 2: Add a Room'
       m_Tutorial: {fileID: 11400000, guid: 97ff54290d4d54a86b2e22ed724ab843, type: 2}
       m_Icons:
         m_Items: []

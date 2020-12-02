@@ -1,7 +1,6 @@
-﻿using UnityEngine;
+﻿using System.Collections.Generic;
+using UnityEngine;
 using UnityEngine.AI;
-using System.Collections.Generic;
-using System.Linq;
 using UnityEngine.Events;
 
 [RequireComponent(typeof(Health), typeof(Actor), typeof(NavMeshAgent))]
@@ -21,24 +20,21 @@ public class EnemyController : MonoBehaviour
     }
 
     [Header("Parameters")]
-    [Tooltip("The weapon this enemy uses for attacking")]
-    public WeaponController weapon;
-    [Tooltip("The point representing the source of target-detection raycasts for the enemy AI")]
-    public Transform detectionSourcePoint;
     [Tooltip("The Y height at which the enemy will be automatically killed (if it falls off of the level)")]
     public float selfDestructYHeight = -20f;
     [Tooltip("The distance at which the enemy considers that it has reached its current path destination point")]
     public float pathReachingRadius = 2f;
     [Tooltip("The speed at which the enemy rotates")]
     public float orientationSpeed = 10f;
-    [Tooltip("The max distance at which the enemy can see targets")]
-    public float detectionRange = 20f;
-    [Tooltip("The max distance at which the enemy can attack its target")]
-    public float attackRange = 10f;
-    [Tooltip("Time before an enemy abandons a known target that it can't see anymore")]
-    public float knownTargetTimeout = 4f;
     [Tooltip("Delay after death where the GameObject is destroyed (to allow for animation)")]
     public float deathDuration = 0f;
+
+
+    [Header("Weapons Parameters")]
+    [Tooltip("Allow weapon swapping for this enemy")]
+    public bool swapToNextWeapon = false;
+    [Tooltip("Time delay between a weapon swap and the next attack")]
+    public float delayAfterWeaponSwap = 0f;
 
     [Header("Eye color")]
     [Tooltip("Material for the eye color")]
@@ -98,21 +94,26 @@ public class EnemyController : MonoBehaviour
     MaterialPropertyBlock m_EyeColorMaterialPropertyBlock;
 
     public PatrolPath patrolPath { get; set; }
-    public GameObject knownDetectedTarget { get; private set; }
-    public bool isTargetInAttackRange { get; private set; }
-    public bool isSeeingTarget { get; private set; }
-    public bool hadKnownTarget { get; private set; }
+    public GameObject knownDetectedTarget => m_DetectionModule.knownDetectedTarget;
+    public bool isTargetInAttackRange => m_DetectionModule.isTargetInAttackRange;
+    public bool isSeeingTarget => m_DetectionModule.isSeeingTarget;
+    public bool hadKnownTarget => m_DetectionModule.hadKnownTarget;
     public NavMeshAgent m_NavMeshAgent { get; private set; }
+    public DetectionModule m_DetectionModule { get; private set; }
 
     int m_PathDestinationNodeIndex;
     EnemyManager m_EnemyManager;
     ActorsManager m_ActorsManager;
     Health m_Health;
     Actor m_Actor;
-    float m_TimeLastSeenTarget = Mathf.NegativeInfinity;
     Collider[] m_SelfColliders;
     GameFlowManager m_GameFlowManager;
     bool m_WasDamagedThisFrame;
+    float m_LastTimeWeaponSwapped = Mathf.NegativeInfinity;
+    int m_CurrentWeaponIndex;
+    WeaponController m_CurrentWeapon;
+    WeaponController[] m_Weapons;
+    NavigationModule m_NavigationModule;
 
     void Start()
     {
@@ -139,8 +140,31 @@ public class EnemyController : MonoBehaviour
         // Subscribe to damage & death actions
         m_Health.onDie += OnDie;
         m_Health.onDamaged += OnDamaged;
-        
-        weapon.owner = gameObject;
+
+        // Find and initialize all weapons
+        FindAndInitializeAllWeapons();
+        var weapon = GetCurrentWeapon();
+        weapon.ShowWeapon(true);
+
+        var detectionModules = GetComponentsInChildren<DetectionModule>();
+        DebugUtility.HandleErrorIfNoComponentFound<DetectionModule, EnemyController>(detectionModules.Length, this, gameObject);
+        DebugUtility.HandleWarningIfDuplicateObjects<DetectionModule, EnemyController>(detectionModules.Length, this, gameObject);
+        // Initialize detection module
+        m_DetectionModule = detectionModules[0];
+        m_DetectionModule.onDetectedTarget += OnDetectedTarget;
+        m_DetectionModule.onLostTarget += OnLostTarget;
+        onAttack += m_DetectionModule.OnAttack;
+
+        var navigationModules = GetComponentsInChildren<NavigationModule>();
+        DebugUtility.HandleWarningIfDuplicateObjects<DetectionModule, EnemyController>(detectionModules.Length, this, gameObject);
+        // Override navmesh agent data
+        if (navigationModules.Length > 0)
+        {
+            m_NavigationModule = navigationModules[0];
+            m_NavMeshAgent.speed = m_NavigationModule.moveSpeed;
+            m_NavMeshAgent.angularSpeed = m_NavigationModule.angularSpeed;
+            m_NavMeshAgent.acceleration = m_NavigationModule.acceleration;
+        }
 
         foreach (var renderer in GetComponentsInChildren<Renderer>(true))
         {
@@ -158,18 +182,22 @@ public class EnemyController : MonoBehaviour
             }
         }
 
-        m_EyeColorMaterialPropertyBlock = new MaterialPropertyBlock();
         m_BodyFlashMaterialPropertyBlock = new MaterialPropertyBlock();
 
-        m_EyeColorMaterialPropertyBlock.SetColor("_EmissionColor", defaultEyeColor);
-        m_EyeRendererData.renderer.SetPropertyBlock(m_EyeColorMaterialPropertyBlock, m_EyeRendererData.materialIndex);
+        // Check if we have an eye renderer for this enemy
+        if (m_EyeRendererData.renderer != null)
+        {
+            m_EyeColorMaterialPropertyBlock = new MaterialPropertyBlock();
+            m_EyeColorMaterialPropertyBlock.SetColor("_EmissionColor", defaultEyeColor);
+            m_EyeRendererData.renderer.SetPropertyBlock(m_EyeColorMaterialPropertyBlock, m_EyeRendererData.materialIndex);
+        }
     }
 
     void Update()
     {
         EnsureIsWithinLevelBounds();
 
-        HandleTargetDetection();
+        m_DetectionModule.HandleTargetDetection(m_Actor, m_SelfColliders);
 
         Color currentColor = onHitBodyGradient.Evaluate((Time.time - m_LastTimeDamaged) / flashOnHitDuration);
         m_BodyFlashMaterialPropertyBlock.SetColor("_EmissionColor", currentColor);
@@ -191,81 +219,28 @@ public class EnemyController : MonoBehaviour
         }
     }
 
-    void HandleTargetDetection()
+    void OnLostTarget()
     {
-        // Handle known target detection timeout
-        if (knownDetectedTarget && !isSeeingTarget && (Time.time - m_TimeLastSeenTarget) > knownTargetTimeout)
+        onLostTarget.Invoke();
+
+        // Set the eye attack color and property block if the eye renderer is set
+        if (m_EyeRendererData.renderer != null)
         {
-            knownDetectedTarget = null;
-        }
-
-        // Find the closest visible hostile actor
-        float sqrDetectionRange = detectionRange * detectionRange;
-        isSeeingTarget = false;
-        float closestSqrDistance = Mathf.Infinity;
-        foreach (Actor actor in m_ActorsManager.actors)
-        {
-            if (actor.affiliation != m_Actor.affiliation)
-            {
-                float sqrDistance = (actor.transform.position - detectionSourcePoint.position).sqrMagnitude;
-                if (sqrDistance < sqrDetectionRange && sqrDistance < closestSqrDistance)
-                {
-                    // Check for obstructions
-                    RaycastHit[] hits = Physics.RaycastAll(detectionSourcePoint.position, (actor.aimPoint.position - detectionSourcePoint.position).normalized, detectionRange, -1, QueryTriggerInteraction.Ignore);
-                    RaycastHit closestValidHit = new RaycastHit();
-                    closestValidHit.distance = Mathf.Infinity;
-                    bool foundValidHit = false;
-                    foreach (var h in hits)
-                    {
-                        if(!m_SelfColliders.Contains(h.collider) && h.distance < closestValidHit.distance)
-                        {
-                            closestValidHit = h;
-                            foundValidHit = true;
-                        }
-                    }
-
-                    if(foundValidHit)
-                    {
-                        Actor hitActor = closestValidHit.collider.GetComponentInParent<Actor>();
-                        if (hitActor == actor)
-                        {
-                            isSeeingTarget = true;
-                            closestSqrDistance = sqrDistance;
-
-                            m_TimeLastSeenTarget = Time.time;
-                            knownDetectedTarget = actor.aimPoint.gameObject;
-                        }
-                    }
-                }
-            }
-        }
-
-        isTargetInAttackRange = knownDetectedTarget != null && Vector3.Distance(transform.position, knownDetectedTarget.transform.position) <= attackRange;
-
-        // Detection events
-        if (!hadKnownTarget && 
-            knownDetectedTarget != null && 
-            onDetectedTarget != null)
-        {
-            onDetectedTarget.Invoke();
-
-            //Set the eye default color and property block
-            m_EyeColorMaterialPropertyBlock.SetColor("_EmissionColor", attackEyeColor);
-            m_EyeRendererData.renderer.SetPropertyBlock(m_EyeColorMaterialPropertyBlock, m_EyeRendererData.materialIndex);
-        }
-        if (hadKnownTarget && 
-            knownDetectedTarget == null && 
-            onLostTarget != null)
-        {
-            onLostTarget.Invoke();
-
-            //Set the eye attack color and property block
             m_EyeColorMaterialPropertyBlock.SetColor("_EmissionColor", defaultEyeColor);
             m_EyeRendererData.renderer.SetPropertyBlock(m_EyeColorMaterialPropertyBlock, m_EyeRendererData.materialIndex);
         }
+    }
 
-        // Remember if we already knew a target (for next frame)
-        hadKnownTarget = knownDetectedTarget != null;
+    void OnDetectedTarget()
+    {
+        onDetectedTarget.Invoke();
+
+        // Set the eye default color and property block if the eye renderer is set
+        if (m_EyeRendererData.renderer != null)
+        {
+            m_EyeColorMaterialPropertyBlock.SetColor("_EmissionColor", attackEyeColor);
+            m_EyeRendererData.renderer.SetPropertyBlock(m_EyeColorMaterialPropertyBlock, m_EyeRendererData.materialIndex);
+        }
     }
 
     public void OrientTowards(Vector3 lookPosition)
@@ -357,8 +332,7 @@ public class EnemyController : MonoBehaviour
         if (damageSource && damageSource.GetComponent<PlayerCharacterController>())
         {
             // pursue the player
-            m_TimeLastSeenTarget = Time.time;
-            knownDetectedTarget = damageSource;
+            m_DetectionModule.OnDamaged(damageSource);
 
             if (onDamaged != null)
             {
@@ -379,7 +353,7 @@ public class EnemyController : MonoBehaviour
         // spawn a particle system when dying
         var vfx = Instantiate(deathVFX, deathVFXSpawnPoint.position, Quaternion.identity);
         Destroy(vfx, 5f);
-               
+
         // tells the game flow manager to handle the enemy destuction
         m_EnemyManager.UnregisterEnemy(this);
 
@@ -399,29 +373,50 @@ public class EnemyController : MonoBehaviour
         Gizmos.color = pathReachingRangeColor;
         Gizmos.DrawWireSphere(transform.position, pathReachingRadius);
 
-        // Detection range
-        Gizmos.color = detectionRangeColor;
-        Gizmos.DrawWireSphere(transform.position, detectionRange);
+        if (m_DetectionModule != null)
+        {
+            // Detection range
+            Gizmos.color = detectionRangeColor;
+            Gizmos.DrawWireSphere(transform.position, m_DetectionModule.detectionRange);
 
-        // Attack range
-        Gizmos.color = attackRangeColor;
-        Gizmos.DrawWireSphere(transform.position, attackRange);
+            // Attack range
+            Gizmos.color = attackRangeColor;
+            Gizmos.DrawWireSphere(transform.position, m_DetectionModule.attackRange);
+        }
     }
 
-    public bool TryAtack(Vector3 weaponForward)
+    public void OrientWeaponsTowards(Vector3 lookPosition)
+    {
+        for (int i = 0; i < m_Weapons.Length; i++)
+        {
+            // orient weapon towards player
+            Vector3 weaponForward = (lookPosition - m_Weapons[i].weaponRoot.transform.position).normalized;
+            m_Weapons[i].transform.forward = weaponForward;
+        }
+    }
+
+    public bool TryAtack(Vector3 enemyPosition)
     {
         if (m_GameFlowManager.gameIsEnding)
             return false;
 
-        // point weapon towards player
-        weapon.transform.forward = weaponForward;
-               
-        // Shoot the weapon
-        bool didFire = weapon.HandleShootInputs(false, true, false);
+        OrientWeaponsTowards(enemyPosition);
 
-        if(didFire && onAttack != null)
+        if ((m_LastTimeWeaponSwapped + delayAfterWeaponSwap) >= Time.time)
+            return false;
+
+        // Shoot the weapon
+        bool didFire = GetCurrentWeapon().HandleShootInputs(false, true, false);
+
+        if (didFire && onAttack != null)
         {
             onAttack.Invoke();
+
+            if (swapToNextWeapon && m_Weapons.Length > 1)
+            {
+                int nextWeaponIndex = (m_CurrentWeaponIndex + 1) % m_Weapons.Length;
+                SetCurrentWeapon(nextWeaponIndex);
+            }
         }
 
         return didFire;
@@ -435,5 +430,48 @@ public class EnemyController : MonoBehaviour
             return true;
         else
             return (Random.value <= dropRate);
+    }
+
+    void FindAndInitializeAllWeapons()
+    {
+        // Check if we already found and initialized the weapons
+        if (m_Weapons == null)
+        {
+            m_Weapons = GetComponentsInChildren<WeaponController>();
+            DebugUtility.HandleErrorIfNoComponentFound<WeaponController, EnemyController>(m_Weapons.Length, this, gameObject);
+
+            for (int i = 0; i < m_Weapons.Length; i++)
+            {
+                m_Weapons[i].owner = gameObject;
+            }
+        }
+    }
+
+    public WeaponController GetCurrentWeapon()
+    {
+        FindAndInitializeAllWeapons();
+        // Check if no weapon is currently selected
+        if (m_CurrentWeapon == null)
+        {
+            // Set the first weapon of the weapons list as the current weapon
+            SetCurrentWeapon(0);
+        }
+        DebugUtility.HandleErrorIfNullGetComponent<WeaponController, EnemyController>(m_CurrentWeapon, this, gameObject);
+
+        return m_CurrentWeapon;
+    }
+
+    void SetCurrentWeapon(int index)
+    {
+        m_CurrentWeaponIndex = index;
+        m_CurrentWeapon = m_Weapons[m_CurrentWeaponIndex];
+        if (swapToNextWeapon)
+        {
+            m_LastTimeWeaponSwapped = Time.time;
+        }
+        else
+        {
+            m_LastTimeWeaponSwapped = Mathf.NegativeInfinity;
+        }
     }
 }

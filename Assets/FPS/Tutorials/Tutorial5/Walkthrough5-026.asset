@@ -69,18 +69,20 @@ MonoBehaviour:
       m_Text: '<b><size=14>Add Game Info</size></b>
 
 
-        Now it''s time to name your game.
+        Now it''s time to name
+        your game.
 
 
-        You can also find photo you took earlier in <b>Assets</b> folder and use it
-        as a thumbnail.
+        You can also find photo you took earlier in <b>Assets</b>
+        folder and use it as a thumbnail.
 
 
-        When done, simply click <b>Upload</b>.
+        When done, simply click <b>Share</b>.
 
 
-        When your upload is complete, you will receive a web link for your game that
-        you can share. The link will also be emailed to you.'
+        When
+        your upload is complete, you will receive a web link for your game that you
+        can share. The link will also be emailed to you.'
       m_TutorialButtonText: 
       m_Tutorial: {fileID: 0}
       m_Icons:

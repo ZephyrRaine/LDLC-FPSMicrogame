@@ -427,7 +427,7 @@ MonoBehaviour:
   m_LastFolders:
   - Assets/FPS/Art/Materials/Level
   m_LastFoldersGridSize: 90
-  m_LastProjectPath: C:\Users\yatchi.lau\Downloads\00_1120_fps-staging_d3a3a8e\microgame-fps-staging
+  m_LastProjectPath: C:\Users\yatchi.lau\Documents\A$_Staging\FPS\0611_FPS_A$up01
   m_LockTracker:
     m_IsLocked: 0
   m_FolderTreeState:

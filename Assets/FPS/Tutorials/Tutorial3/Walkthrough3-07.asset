@@ -33,7 +33,7 @@ MonoBehaviour:
     - m_Type: 0
       m_Summary: 
       m_Text: "<b><size=14>Level Prefabs</size></b>\n\nNext, let's make your level
-        more interesting by adding a <b>room prefab</b>. \n\n<b>Prefabs</b> are a
+        more interesting by adding a <b>room prefab</b>. \n\nA <b>prefab</b> is a
         GameObject that has components and properties, and is stored as an asset.
         It can be reused anywhere you want in your game.\n\n<b>Project window</b>
         lists all the prefabs that are available in this project.\n\n\x03Click <b>Next</b>
