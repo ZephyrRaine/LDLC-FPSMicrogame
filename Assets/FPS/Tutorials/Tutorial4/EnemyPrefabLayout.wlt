@@ -427,7 +427,7 @@ MonoBehaviour:
   m_LastFolders:
   - Assets/FPS/Prefabs/Enemies
   m_LastFoldersGridSize: 96
-  m_LastProjectPath: C:\Users\yatchi.lau\Documents\A$_Staging\FPS\0611_FPS_A$up01
+  m_LastProjectPath: C:\Users\jelly\Documents\Github\LDLC-FPSMicrogame
   m_LockTracker:
     m_IsLocked: 0
   m_FolderTreeState:
