@@ -7,6 +7,11 @@ public class MonScript : MonoBehaviour
     // Assign a Rigidbody component in the inspector to instantiate
     public Rigidbody projectile;
 
+    private void Start()
+    {
+        Debug.Log("Lancement du programme.");
+    }
+
     void Update()
     {
         // Ctrl was pressed, launch a projectile
