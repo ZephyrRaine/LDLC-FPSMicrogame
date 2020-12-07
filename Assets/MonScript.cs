@@ -21,4 +21,9 @@ public class MonScript : MonoBehaviour
             clone.velocity = transform.TransformDirection(Vector3.forward * 10);
         }
     }
+
+    private void OnCollisionEnter(Collision collision)
+    {
+        Debug.Log("Il y a une collision !");
+    }
 }
